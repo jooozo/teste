@@ -1666,7 +1666,8 @@ var
   // Valores de venda
   PrecoVendaUnit   : Currency;
   PrecoVendaTotal  : Currency;
-  BaseICMSVenda    : Currency;
+  BaseICMSVendaTotal: Currency;
+  ValorNF          : Currency;
   ValorIPIVenda    : Currency;
   ValorICMSVenda   : Currency;
   ValorPISCOFINSVenda: Currency;
@@ -1679,6 +1680,7 @@ var
   BE, BF, BG, BH, BI, BJ, BK, BL, Markup: Currency;
   PrecoMinimoPSD   : Currency;
   PrecoMinimoDPP   : Currency;
+  PrecoMinimoReferencia: Currency;
 
 begin
   if FRecalculandoItem then Exit;
@@ -1724,27 +1726,42 @@ begin
 
       PrecoMinimoPSD := CustoSemImpostos * 2;
       PrecoMinimoDPP := CustoSemImpostos * 1.5;
-      qrItensPRECOMINIMO.AsCurrency := PrecoMinimoPSD;
+      PrecoMinimoReferencia := qrItensPRECOMINIMO.AsCurrency;
+      if PrecoMinimoReferencia <= 0 then
+      begin
+        PrecoMinimoReferencia := PrecoMinimoPSD;
+        qrItensPRECOMINIMO.AsCurrency := PrecoMinimoReferencia;
+      end;
       qrItensPMINIMO.AsCurrency := PrecoMinimoDPP;
 
       if qrItensPRECOVENDA.AsCurrency > 0 then
         PrecoVendaUnit := qrItensPRECOVENDA.AsCurrency
+      else if PrecoMinimoReferencia > 0 then
+        PrecoVendaUnit := PrecoMinimoReferencia
       else
         PrecoVendaUnit := PrecoMinimoDPP;
+
+      if (PrecoMinimoReferencia > 0) and (PrecoVendaUnit < PrecoMinimoReferencia) then
+      begin
+        PrecoVendaUnit := PrecoMinimoReferencia;
+        qrItensPRECOVENDA.AsCurrency := PrecoVendaUnit;
+        Application.MessageBox('Valor unitário abaixo do preço mínimo. Ajustado automaticamente.', 'Aviso',
+          MB_OK + MB_ICONWARNING);
+      end;
 
       PrecoVendaTotal := qrItensQUANTIDADE.AsCurrency * PrecoVendaUnit;
       qrItensTOTALVENDA.AsCurrency := PrecoVendaTotal;
       qrItensTOTALVALORNF.AsCurrency := PrecoVendaTotal;
 
-      BaseICMSVenda := PrecoVendaTotal;
-      ValorIPIVenda := BaseICMSVenda * AliqIPI;
-      ValorICMSVenda := BaseICMSVenda * AliqICMS;
-      ValorPISCOFINSVenda := BaseICMSVenda * AliqPisCofins;
+      BaseICMSVendaTotal := PrecoVendaTotal;
+      ValorIPIVenda := BaseICMSVendaTotal * AliqIPI;
+      ValorICMSVenda := BaseICMSVendaTotal * AliqICMS;
+      ValorPISCOFINSVenda := BaseICMSVendaTotal * AliqPisCofins;
 
       qrItensVALORIPI.AsCurrency := ValorIPIVenda;
       qrItensVALORICMS.AsCurrency := ValorICMSVenda;
       qrItensVALORPISCOFINS.AsCurrency := ValorPISCOFINSVenda;
-      qrItensBASECALCULOICMS.AsCurrency := BaseICMSVenda;
+      qrItensBASECALCULOICMS.AsCurrency := BaseICMSVendaTotal;
 
       CustoTotal := qrItensQUANTIDADE.AsCurrency * CustoSemImpostos;
       MargemBruta := PrecoVendaTotal - CustoTotal - ValorIPIVenda - ValorICMSVenda - ValorPISCOFINSVenda;
@@ -1836,7 +1853,12 @@ begin
       PrecoMinimoPSD := CustoSemImpostos * (1 + Markup);
       PrecoMinimoDPP := CustoSemImpostos * 1.5;
 
-      qrItensPRECOMINIMO.AsCurrency := PrecoMinimoPSD;
+      PrecoMinimoReferencia := qrItensPRECOMINIMO.AsCurrency;
+      if PrecoMinimoReferencia <= 0 then
+      begin
+        PrecoMinimoReferencia := PrecoMinimoPSD;
+        qrItensPRECOMINIMO.AsCurrency := PrecoMinimoReferencia;
+      end;
       qrItensPMINIMO.AsCurrency := PrecoMinimoDPP;
 
       // ===== 6. PREÇO DE VENDA =====
@@ -1846,11 +1868,23 @@ begin
         // Usuário digitou preço manualmente
         PrecoVendaUnit := qrItensPRECOVENDA.AsCurrency;
       end
+      else if PrecoMinimoReferencia > 0 then
+      begin
+        PrecoVendaUnit := PrecoMinimoReferencia;
+        qrItensPRECOVENDA.AsCurrency := PrecoVendaUnit;
+      end
       else
       begin
-        // Calcula preço com fator 1.478 sobre o custo líquido
         PrecoVendaUnit := PrecoMinimoPSD;
         qrItensPRECOVENDA.AsCurrency := PrecoVendaUnit;
+      end;
+
+      if (PrecoMinimoReferencia > 0) and (PrecoVendaUnit < PrecoMinimoReferencia) then
+      begin
+        PrecoVendaUnit := PrecoMinimoReferencia;
+        qrItensPRECOVENDA.AsCurrency := PrecoVendaUnit;
+        Application.MessageBox('Valor unitário abaixo do preço mínimo. Ajustado automaticamente.', 'Aviso',
+          MB_OK + MB_ICONWARNING);
       end;
 
       PrecoVendaTotal := qrItensQUANTIDADE.AsCurrency * PrecoVendaUnit;
@@ -1859,28 +1893,30 @@ begin
 
       // ===== 7. IMPOSTOS SOBRE A VENDA =====
 
-      // Base ICMS = Preço sem IPI (por fora)
-      BaseICMSVenda := PrecoVendaUnit / (1 + AliqIPIVenda);
-      qrItensBASECALCULOICMS.AsCurrency := BaseICMSVenda * qrItensQUANTIDADE.AsCurrency;
+      ValorNF := PrecoVendaTotal;
+      ValorIPIVenda := (ValorNF / (1 + AliqIPIVenda)) * AliqIPIVenda;
+      BaseICMSVendaTotal := ValorNF - ValorIPIVenda;
+      qrItensBASECALCULOICMS.AsCurrency := BaseICMSVendaTotal;
 
       // ICMS sobre a venda (usa alíquota cheia para nota fiscal)
-      ValorICMSVenda := BaseICMSVenda * AliqICMS * qrItensQUANTIDADE.AsCurrency;
+      ValorICMSVenda := BaseICMSVendaTotal * AliqICMS;
       qrItensVALORICMS.AsCurrency := ValorICMSVenda;
 
       // PIS/COFINS sobre a venda
-      ValorPISCOFINSVenda := BaseICMSVenda * AliqPisCofins * qrItensQUANTIDADE.AsCurrency;
+      ValorPISCOFINSVenda := BaseICMSVendaTotal * AliqPisCofins;
       qrItensVALORPISCOFINS.AsCurrency := ValorPISCOFINSVenda;
 
       // IPI sobre a venda
-      ValorIPIVenda := BaseICMSVenda * AliqIPIVenda * qrItensQUANTIDADE.AsCurrency;
+      // Valor IPI baseado no Valor NF (planilha - coluna Y)
+      // ValorIPIVenda já calculado acima para manter a precedência da planilha
       qrItensVALORIPIVENDA.AsCurrency := ValorIPIVenda;
 
       // ===== 8. MARGEM BRUTA (SEGUNDO PLANILHA) =====
       // IMPORTANTE: Margem usa ICMS EFETIVO, não ICMS cheio!
       // Margem = Base ICMS - Custo Líquido - ICMS Efetivo - PIS/COFINS - IPI Venda
-      MargemBruta := (BaseICMSVenda * qrItensQUANTIDADE.AsCurrency)
+      MargemBruta := BaseICMSVendaTotal
                      - (CustoSemImpostos * qrItensQUANTIDADE.AsCurrency)
-                     - (BaseICMSVenda * AliqICMSEfetivo * qrItensQUANTIDADE.AsCurrency)  // <-- USA ICMS EFETIVO!
+                     - (BaseICMSVendaTotal * AliqICMSEfetivo)  // <-- USA ICMS EFETIVO!
                      - ValorPISCOFINSVenda
                      - ValorIPIVenda;
       qrItensMARGEMMINIMA.AsCurrency := MargemBruta;
@@ -1894,7 +1930,7 @@ begin
       qrItensPMINIMO.AsCurrency := PercentualMargem;
 
       // ===== 10. CRÉDITO PRESUMIDO =====
-      qrItensCREDITOPRESUMIDO.AsCurrency := (AliqICMS - AliqICMSEfetivo) * (BaseICMSVenda * qrItensQUANTIDADE.AsCurrency);
+      qrItensCREDITOPRESUMIDO.AsCurrency := (AliqICMS - AliqICMSEfetivo) * BaseICMSVendaTotal;
       qrItensIRJPCREDITOPRESUMIDO.AsCurrency := qrItensCREDITOPRESUMIDO.AsCurrency * 0.34;
 
       // ===== 11. FATOR =====
